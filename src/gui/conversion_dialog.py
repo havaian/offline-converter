@@ -165,9 +165,6 @@ class ConversionDialog(QDialog):
                 self.status_label.setText(f"Saved to: {target_path}")
             except Exception as e:
                 self.status_label.setText(f"Auto-save failed: {str(e)}")
-        else:
-            # Show save dialog
-            self.save_file()
         
         # Emit completion signal
         self.conversion_complete.emit(True)
@@ -209,6 +206,20 @@ class ConversionDialog(QDialog):
             # Save last used directory
             self.settings.setValue("last_save_dir", os.path.dirname(file_path))
             
+            # Check if target exists and is different from source
+            if Path(file_path) != self.output_path and Path(file_path).exists():
+                # Ask for confirmation before overwriting
+                confirm = QMessageBox.question(
+                    self,
+                    "Confirm Overwrite",
+                    f"File already exists: {file_path}\nDo you want to replace it?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                
+                if confirm != QMessageBox.StandardButton.Yes:
+                    return
+            
             # Copy the file
             shutil.copy2(str(self.output_path), file_path)
             
@@ -223,6 +234,14 @@ class ConversionDialog(QDialog):
             
         except Exception as e:
             self.status_label.setText(f"Save failed: {str(e)}")
+            
+            # Show error message
+            QMessageBox.critical(
+                self,
+                "Save Failed",
+                f"Could not save file: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
     
     def cancel_conversion(self):
         """Cancel the conversion process"""

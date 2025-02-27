@@ -5,8 +5,9 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                            QFileDialog, QDialogButtonBox,
                            QListWidget, QGroupBox, QFormLayout,
                            QTableWidget, QTableWidgetItem, QHeaderView,
-                           QApplication)
+                           QApplication, QRadioButton, QButtonGroup)
 from PyQt6.QtCore import Qt, QSettings
+from .first_run_dialog import FirstRunDialog
 
 from utils.dependencies import check_dependencies
 
@@ -35,10 +36,10 @@ class SettingsDialog(QDialog):
         self.setup_general_tab()
         self.tabs.addTab(self.general_tab, "General")
         
-        # Tools settings tab
+        # Tools settings tab - Create and add the widget first, then set up its contents
         self.tools_tab = QWidget()
-        self.setup_tools_tab()
         self.tabs.addTab(self.tools_tab, "External Tools")
+        self.setup_tools_tab()  # Set up the contents after adding to tabs
         
         # About tab
         self.about_tab = QWidget()
@@ -49,7 +50,7 @@ class SettingsDialog(QDialog):
         
         # Dialog buttons
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | 
-                                     QDialogButtonBox.StandardButton.Cancel)
+                                    QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
@@ -126,10 +127,22 @@ class SettingsDialog(QDialog):
         
         deps_layout.addWidget(self.deps_table)
         
+        # Add buttons for managing tools
+        tools_buttons_layout = QHBoxLayout()
+        
         refresh_button = QPushButton("Refresh Status")
         refresh_button.clicked.connect(self.update_deps_table)
-        deps_layout.addWidget(refresh_button)
+        tools_buttons_layout.addWidget(refresh_button)
         
+        download_button = QPushButton("Download Missing Tools")
+        download_button.clicked.connect(self.download_missing_tools)
+        tools_buttons_layout.addWidget(download_button)
+        
+        check_updates_button = QPushButton("Check for Updates")
+        check_updates_button.clicked.connect(self.check_for_updates)
+        tools_buttons_layout.addWidget(check_updates_button)
+        
+        deps_layout.addLayout(tools_buttons_layout)
         deps_group.setLayout(deps_layout)
         layout.addWidget(deps_group)
         
@@ -179,7 +192,41 @@ class SettingsDialog(QDialog):
         paths_group.setLayout(paths_layout)
         layout.addWidget(paths_group)
         
+        # Auto-update settings
+        update_group = QGroupBox("Update Settings")
+        update_layout = QVBoxLayout()
+
+        # Replace the simple checkbox with radio buttons for different intervals
+        self.update_options_group = QButtonGroup(self)
+
+        self.no_updates_radio = QRadioButton("Never check for updates")
+        self.update_options_group.addButton(self.no_updates_radio)
+        update_layout.addWidget(self.no_updates_radio)
+
+        self.weekly_updates_radio = QRadioButton("Check for updates weekly (recommended)")
+        self.update_options_group.addButton(self.weekly_updates_radio)
+        update_layout.addWidget(self.weekly_updates_radio)
+
+        self.monthly_updates_radio = QRadioButton("Check for updates monthly")
+        self.update_options_group.addButton(self.monthly_updates_radio)
+        update_layout.addWidget(self.monthly_updates_radio)
+
+        # Select the appropriate radio button based on settings
+        update_interval = self.settings.value("update_interval", "weekly", type=str)
+        if update_interval == "never":
+            self.no_updates_radio.setChecked(True)
+        elif update_interval == "monthly":
+            self.monthly_updates_radio.setChecked(True)
+        else:  # Default to weekly
+            self.weekly_updates_radio.setChecked(True)
+
+        update_group.setLayout(update_layout)
+        layout.addWidget(update_group)
+    
+        # Add stretch to keep everything at the top
         layout.addStretch(1)
+        
+        # Set the layout for the tools tab
         self.tools_tab.setLayout(layout)
     
     def setup_about_tab(self):
@@ -370,51 +417,45 @@ class SettingsDialog(QDialog):
     
     def accept(self):
         """Save settings and close dialog"""
-        # General tab
-        self.settings.setValue(
-            "remember_last_dir",
-            self.remember_dir_checkbox.isChecked()
-        )
-        
-        self.settings.setValue(
-            "default_output_dir",
-            self.default_dir_edit.text()
-        )
-        
-        self.settings.setValue(
-            "overwrite_files",
-            self.overwrite_checkbox.isChecked()
-        )
-        
-        self.settings.setValue(
-            "append_format",
-            self.append_format_checkbox.isChecked()
-        )
-        
-        self.settings.setValue(
-            "confirm_conversion",
-            self.confirm_conversion_checkbox.isChecked()
-        )
-        
-        self.settings.setValue(
-            "show_notifications",
-            self.show_notifications_checkbox.isChecked()
-        )
-        
-        # Tools tab
-        self.settings.setValue(
-            "ffmpeg_path",
-            self.ffmpeg_path_edit.text()
-        )
-        
-        self.settings.setValue(
-            "pandoc_path",
-            self.pandoc_path_edit.text()
-        )
-        
-        self.settings.setValue(
-            "libreoffice_path",
-            self.office_path_edit.text()
-        )
+        # Save update interval setting
+        if self.no_updates_radio.isChecked():
+            self.settings.setValue("update_interval", "never")
+            self.settings.setValue("check_updates", False)
+        elif self.monthly_updates_radio.isChecked():
+            self.settings.setValue("update_interval", "monthly")
+            self.settings.setValue("check_updates", True)
+        else:  # Weekly
+            self.settings.setValue("update_interval", "weekly")
+            self.settings.setValue("check_updates", True)
         
         super().accept()
+
+    def download_missing_tools(self):
+        """Show dialog to download missing tools"""
+        # Get missing tools
+        deps = check_dependencies()
+        missing = [name for name, info in deps.items() if not info['available']]
+        
+        if not missing:
+            QMessageBox.information(
+                self,
+                "No Missing Tools",
+                "All required tools are already installed.",
+                QMessageBox.StandardButton.Ok
+            )
+            return
+        
+        # Show download dialog
+        download_dialog = FirstRunDialog(self)
+        download_dialog.exec()
+        
+        # Refresh status after download
+        self.update_deps_table()
+
+    def check_for_updates(self):
+        """Show dialog to check for tool updates"""
+        update_dialog = FirstRunDialog(self, check_mode=True)
+        update_dialog.exec()
+        
+        # Refresh status after potential updates
+        self.update_deps_table()

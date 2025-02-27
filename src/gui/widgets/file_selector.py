@@ -81,22 +81,24 @@ class FileSelector(QWidget):
             exts = ' '.join(f"*.{ext}" for ext in category_info['extensions'])
             filter_items.append(f"{category_info['description']} ({exts})")
         else:
+            # Add "All Files" as the first option
+            filter_items.append("All Files (*.*)")
+            
             # Add all categories
             for category, info in FILE_CATEGORIES.items():
                 exts = ' '.join(f"*.{ext}" for ext in info['extensions'])
                 filter_items.append(f"{info['description']} ({exts})")
         
-        # Add "All Files" option
-        filter_items.append("All Files (*.*)")
         filter_string = ";;".join(filter_items)
         
-        file_paths, _ = QFileDialog.getOpenFileNames(
+        file_paths, selected_filter = QFileDialog.getOpenFileNames(
             self,
             "Select Input Files",
             "",
             filter_string
         )
         
+        # Rest of the method remains unchanged
         if not file_paths:
             return
         
