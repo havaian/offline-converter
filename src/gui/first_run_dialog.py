@@ -112,7 +112,7 @@ class FirstRunDialog(QDialog):
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle("Universal File Converter - Setup" if not self.check_mode 
-                           else "Check for Updates")
+                        else "Check for Updates")
         self.setMinimumSize(600, 400)
         self.setModal(True)
         
@@ -120,7 +120,7 @@ class FirstRunDialog(QDialog):
         
         # Header
         header_label = QLabel("Universal File Converter Setup" if not self.check_mode 
-                             else "Check for Tool Updates")
+                            else "Check for Tool Updates")
         header_font = QFont()
         header_font.setPointSize(14)
         header_font.setBold(True)
@@ -214,28 +214,17 @@ class FirstRunDialog(QDialog):
         if not self.check_mode:
             options_group = QGroupBox("Update Settings")
             options_layout = QVBoxLayout()
-            
-            # Use radio buttons for update frequency
-            self.update_options_group = QButtonGroup(self)
-            
-            self.weekly_updates_radio = QRadioButton("Check for updates weekly (recommended)")
-            self.update_options_group.addButton(self.weekly_updates_radio)
-            self.weekly_updates_radio.setChecked(True)  # Default option
-            options_layout.addWidget(self.weekly_updates_radio)
-            
-            self.monthly_updates_radio = QRadioButton("Check for updates monthly")
-            self.update_options_group.addButton(self.monthly_updates_radio)
-            options_layout.addWidget(self.monthly_updates_radio)
-            
-            self.no_updates_radio = QRadioButton("Never check for updates")
-            self.update_options_group.addButton(self.no_updates_radio)
-            options_layout.addWidget(self.no_updates_radio)
+
+            options_layout.addWidget(QLabel("You can configure update checking frequency in the Settings dialog."))
             
             options_group.setLayout(options_layout)
             layout.addWidget(options_group)
             
-            # Buttons
-            button_layout = QHBoxLayout()
+            options_group.setLayout(options_layout)
+            layout.addWidget(options_group)
+        
+        # Buttons - initialize button_layout regardless of check_mode
+        button_layout = QHBoxLayout()
         
         if not self.check_mode:
             self.skip_button = QPushButton("Skip Setup")
@@ -474,14 +463,18 @@ class FirstRunDialog(QDialog):
     def save_settings(self):
         """Save user preferences"""
         if not self.check_mode:
-            # Save update settings based on radio button selection
-            if self.no_updates_radio.isChecked():
+            # Check if the update option attributes exist before accessing them
+            if hasattr(self, 'no_updates_radio') and self.no_updates_radio.isChecked():
                 self.settings.setValue("update_interval", "never")
                 self.settings.setValue("check_updates", False)
-            elif self.monthly_updates_radio.isChecked():
+            elif hasattr(self, 'monthly_updates_radio') and self.monthly_updates_radio.isChecked():
                 self.settings.setValue("update_interval", "monthly")
                 self.settings.setValue("check_updates", True)
-            else:  # Weekly
+            elif hasattr(self, 'weekly_updates_radio') and self.weekly_updates_radio.isChecked():
+                self.settings.setValue("update_interval", "weekly")
+                self.settings.setValue("check_updates", True)
+            else:
+                # Default to weekly if radio buttons don't exist
                 self.settings.setValue("update_interval", "weekly")
                 self.settings.setValue("check_updates", True)
             

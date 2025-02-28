@@ -138,5 +138,6 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# Portable tools dirs
+# Portable tools & temp dirs
 portable_tools/
+temp/

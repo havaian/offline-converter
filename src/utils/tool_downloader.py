@@ -15,23 +15,23 @@ import threading
 # Tool version information - can be updated as new versions are released
 TOOL_VERSIONS = {
     'ffmpeg': {
-        'version': '6.0',
+        'version': '7.0.2',
         'windows': 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip',
-        'darwin': 'https://evermeet.cx/ffmpeg/ffmpeg-6.0.zip',
+        'darwin': 'https://evermeet.cx/ffmpeg/ffmpeg-7.0.2.zip',
         'linux': 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz'
     },
     'pandoc': {
-        'version': '3.1.9',
-        'windows': 'https://github.com/jgm/pandoc/releases/download/3.1.9/pandoc-3.1.9-windows-x86_64.zip',
-        'darwin': 'https://github.com/jgm/pandoc/releases/download/3.1.9/pandoc-3.1.9-macOS.zip',
-        'linux': 'https://github.com/jgm/pandoc/releases/download/3.1.9/pandoc-3.1.9-linux-amd64.tar.gz'
+        'version': '3.6.3',
+        'windows': 'https://github.com/jgm/pandoc/releases/download/3.6.3/pandoc-3.6.3-windows-x86_64.zip',
+        'darwin': 'https://github.com/jgm/pandoc/releases/download/3.6.3/pandoc-3.6.3-macOS.zip',
+        'linux': 'https://github.com/jgm/pandoc/releases/download/3.6.3/pandoc-3.6.3-linux-amd64.tar.gz'
     },
     'libreoffice': {
-        'version': '7.6.4',
-        # For Windows, use the MSI installer which is more reliable to extract from
-        'windows': 'https://download.documentfoundation.org/libreoffice/stable/7.6.4/win/x86_64/LibreOffice_7.6.4_Win_x64.msi',
-        'darwin': 'https://download.documentfoundation.org/libreoffice/stable/7.6.4/mac/x86_64/LibreOffice_7.6.4_MacOS_x86-64.dmg',
-        'linux': 'https://download.documentfoundation.org/libreoffice/stable/7.6.4/linux/x86_64/LibreOffice_7.6.4_Linux_x86-64_portable.tar.gz'
+        'version': '25.2.1',
+        # Direct links to the official LibreOffice downloads
+        'windows': 'https://sourceforge.net/projects/portableapps/files/LibreOffice%20Portable/LibreOfficePortableLegacy75_7.5.9_MultilingualStandard.paf.exe/download',
+        'darwin': 'https://www.libreoffice.org/donate/dl/mac-x86_64/25.2.1/en-US/LibreOffice_25.2.1_MacOS_x86-64.dmg',
+        'linux': 'https://www.libreoffice.org/donate/dl/deb-x86_64/25.2.1/en-US/LibreOffice_25.2.1_Linux_x86-64_deb.tar.gz'
     }
 }
 
@@ -74,67 +74,129 @@ def ensure_directories() -> Tuple[Path, Path]:
     
     return tools_dir, temp_dir
 
-# Improve download function with better error handling and retries
-def download_file(url: str, target_path: Path, 
-                 progress_callback: Optional[Callable[[int, int], None]] = None,
-                 max_retries: int = 3) -> bool:
+def download_and_setup_tool(tool_name: str, progress_callback: Optional[Callable[[str, int], None]] = None) -> bool:
     """
-    Download a file with progress reporting and retry support.
+    Download and set up a specific tool.
     
     Args:
-        url: URL to download from
-        target_path: Path where to save the file
-        progress_callback: Optional callback function(current, total) to report progress
-        max_retries: Maximum number of retry attempts
+        tool_name: Name of the tool to download ('ffmpeg', 'pandoc', 'libreoffice')
+        progress_callback: Optional callback function(stage, percentage) for progress updates
         
     Returns:
-        bool: True if download was successful
+        bool: True if the tool was successfully set up
     """
-    for attempt in range(max_retries):
-        try:
-            print(f"Downloading {url} (attempt {attempt + 1}/{max_retries})...")
-            
-            # Use a session to better handle connections
-            session = requests.Session()
-            # Set a reasonable timeout
-            response = session.get(url, stream=True, timeout=30)
-            response.raise_for_status()
-            
-            total_size = int(response.headers.get('content-length', 0))
-            downloaded = 0
-            block_size = 1024 * 1024  # 1MB
-            
-            with open(target_path, 'wb') as f:
-                for data in response.iter_content(block_size):
-                    downloaded += len(data)
-                    f.write(data)
-                    
-                    if progress_callback and total_size > 0:
-                        progress_callback(downloaded, total_size)
-            
-            # Verify the download is complete
-            if total_size > 0 and downloaded != total_size:
-                print(f"Warning: Download size mismatch. Expected {total_size}, got {downloaded}.")
-                if attempt < max_retries - 1:
-                    print("Retrying download...")
-                    continue
-            
-            print(f"Download completed successfully: {target_path}")
-            return True
-        
-        except requests.exceptions.RequestException as e:
-            print(f"Download error (attempt {attempt + 1}/{max_retries}): {str(e)}")
-            if attempt < max_retries - 1:
-                print("Retrying in 2 seconds...")
-                time.sleep(2)
-            else:
-                print(f"Failed to download after {max_retries} attempts: {url}")
-                return False
-        except Exception as e:
-            print(f"Unexpected error during download: {str(e)}")
-            return False
+    platform_name = get_platform()
     
-    return False
+    # Check if tool is supported for this platform
+    if tool_name not in TOOL_VERSIONS:
+        print(f"Unknown tool: {tool_name}")
+        return False
+    
+    if platform_name not in TOOL_VERSIONS[tool_name]:
+        print(f"{tool_name} is not supported on {platform_name}")
+        return False
+    
+    # Get download URL
+    url = TOOL_VERSIONS[tool_name][platform_name]
+    
+    # Setup directories
+    tools_dir, temp_dir = ensure_directories()
+    tool_dir = tools_dir / tool_name
+    tool_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Temporary extraction directory
+    extract_dir = temp_dir / tool_name
+    if extract_dir.exists():
+        shutil.rmtree(extract_dir)
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Determine archive filename from URL
+    archive_filename = url.split('/')[-1]
+    download_path = temp_dir / archive_filename
+    
+    # Progress tracking for callbacks
+    if progress_callback:
+        progress_callback("download", 0)
+    
+    # 1. Download
+    download_success = download_file(
+        url, 
+        download_path, 
+        lambda current, total: progress_callback("download", int(current * 100 / total)) 
+        if progress_callback and total > 0 else None
+    )
+    
+    if not download_success:
+        return False
+    
+    # 2. Extract
+    if progress_callback:
+        progress_callback("extract", 0)
+    
+    
+    
+    # Download
+    actual_download_path = download_file(
+        url, 
+        download_path, 
+        lambda current, total: progress_callback("download", int(current * 100 / total)) 
+        if progress_callback and total > 0 else None
+    )
+    
+    if actual_download_path is None:  # Check for None, not False
+        return False
+    
+    # Extract - use the actual_download_path, not download_path
+    extract_success = extract_archive(
+        actual_download_path,  # Use the path returned from download_file
+        extract_dir,
+        lambda current, total: progress_callback("extract", int(current * 100 / total)) 
+        if progress_callback and total > 0 else None
+    )
+    
+    if not extract_success:
+        return False
+    
+    # 3. Organize
+    if progress_callback:
+        progress_callback("organize", 0)
+    
+    organize_success = False
+    if tool_name == 'ffmpeg':
+        organize_success = organize_ffmpeg(extract_dir, tool_dir)
+    elif tool_name == 'pandoc':
+        organize_success = organize_pandoc(extract_dir, tool_dir)
+    elif tool_name == 'libreoffice':
+        organize_success = organize_libreoffice(extract_dir, tool_dir)
+    
+    if progress_callback:
+        progress_callback("organize", 100 if organize_success else 0)
+    
+    # 4. Clean up
+    try:
+        if download_path.exists():
+            download_path.unlink()
+        if extract_dir.exists():
+            shutil.rmtree(extract_dir)
+    except Exception as e:
+        print(f"Warning: Cleanup error: {str(e)}")
+    
+    # 5. Save version info
+    if organize_success:
+        version_file = tool_dir / "version.json"
+        
+        # Use a valid date format instead of Path.ctime
+        import datetime
+        current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        with open(version_file, 'w') as f:
+            json.dump({
+                "version": TOOL_VERSIONS[tool_name]["version"],
+                "platform": platform_name,
+                "install_date": current_date
+            }, f)
+    
+    return organize_success
 
 # Add MSI extraction capability for LibreOffice
 def extract_archive(archive_path: Path, target_dir: Path, 
@@ -151,8 +213,92 @@ def extract_archive(archive_path: Path, target_dir: Path,
         bool: True if extraction was successful
     """
     try:
+        print(f"Extracting file: {archive_path}")
+        
+        # Handle .paf.exe files (PortableApps format)
+        if str(archive_path).lower().endswith('.paf.exe'):
+            print(f"Detected PortableApps installer: {archive_path}")
+            
+            # Try to find 7-Zip
+            seven_zip_path = None
+            possible_7z_paths = [
+                "C:\\Program Files\\7-Zip\\7z.exe",
+                "C:\\Program Files (x86)\\7-Zip\\7z.exe",
+                shutil.which("7z")
+            ]
+            
+            for path in possible_7z_paths:
+                if path and Path(path).exists():
+                    seven_zip_path = path
+                    break
+            
+            if seven_zip_path:
+                print(f"Using 7-Zip at {seven_zip_path} to extract {archive_path}")
+                
+                try:
+                    # Extract using 7-Zip
+                    cmd = [
+                        seven_zip_path,
+                        'x',  # Extract with full paths
+                        str(archive_path),
+                        f'-o{target_dir}',  # Output directory
+                        '-y'  # Yes to all prompts
+                    ]
+                    
+                    result = subprocess.run(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        check=False
+                    )
+                    
+                    if result.returncode != 0:
+                        print(f"7-Zip extraction failed: {result.stderr}")
+                    else:
+                        print(f"7-Zip extraction completed successfully")
+                        return True
+                        
+                except Exception as e:
+                    print(f"Error using 7-Zip: {str(e)}")
+            
+            # If 7-Zip not available or failed, try to execute the installer
+            print(f"Attempting to run the installer {archive_path} in silent mode")
+            try:
+                # Create a directory for the extraction
+                portable_dir = target_dir / "LibreOfficePortable"
+                portable_dir.mkdir(exist_ok=True)
+                
+                cmd = [
+                    str(archive_path),
+                    f'/DESTINATION={portable_dir}',
+                    '/SILENT'
+                ]
+                
+                print(f"Running command: {' '.join(cmd)}")
+                
+                result = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False
+                )
+                
+                # Check if files were extracted
+                if list(portable_dir.glob('*')):
+                    print(f"Installer appears to have extracted files to {portable_dir}")
+                    return True
+                else:
+                    print(f"Installer did not extract files to {portable_dir}")
+                    return False
+                
+            except Exception as e:
+                print(f"Error executing installer: {str(e)}")
+                return False
+        
         # Handle MSI files for Windows
-        if archive_path.suffix.lower() == '.msi':
+        elif archive_path.suffix.lower() == '.msi':
             import tempfile
             print(f"Extracting MSI file: {archive_path}")
             
@@ -205,9 +351,9 @@ def extract_archive(archive_path: Path, target_dir: Path,
                 except Exception as msi_error:
                     print(f"Error during MSI extraction: {msi_error}")
                     return False
-            
+        
         # Handle standard archive formats
-        if archive_path.suffix.lower() == '.zip' or archive_path.name.lower().endswith('.zip'):
+        elif archive_path.suffix.lower() == '.zip' or archive_path.name.lower().endswith('.zip'):
             with zipfile.ZipFile(archive_path, 'r') as zip_ref:
                 # Get total size for progress reporting
                 total_size = sum(file.file_size for file in zip_ref.filelist)
@@ -222,6 +368,7 @@ def extract_archive(archive_path: Path, target_dir: Path,
                         progress_callback(extracted_size, total_size)
                         
                 print(f"Zip extraction completed: {len(zip_ref.filelist)} files extracted to {target_dir}")
+            return True
         
         elif archive_path.name.lower().endswith('.tar.gz') or archive_path.name.lower().endswith('.tgz'):
             with tarfile.open(archive_path, 'r:gz') as tar_ref:
@@ -233,6 +380,7 @@ def extract_archive(archive_path: Path, target_dir: Path,
                         progress_callback(i+1, total_members)
                         
                 print(f"Tar.gz extraction completed: {total_members} files extracted to {target_dir}")
+            return True
         
         elif archive_path.name.lower().endswith('.tar.xz'):
             with tarfile.open(archive_path, 'r:xz') as tar_ref:
@@ -244,6 +392,7 @@ def extract_archive(archive_path: Path, target_dir: Path,
                         progress_callback(i+1, total_members)
                         
                 print(f"Tar.xz extraction completed: {total_members} files extracted to {target_dir}")
+            return True
         
         elif archive_path.name.lower().endswith('.dmg') and sys.platform == 'darwin':
             # Handle DMG files on macOS using hdiutil
@@ -254,14 +403,12 @@ def extract_archive(archive_path: Path, target_dir: Path,
             print(f"Unsupported archive format: {archive_path}")
             return False
         
-        return True
-    
     except Exception as e:
         print(f"Error extracting {archive_path}: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
-        
+
 def organize_ffmpeg(extract_dir: Path, target_dir: Path) -> bool:
     """
     Organize FFmpeg files into the expected structure.
@@ -378,247 +525,191 @@ def organize_libreoffice(extract_dir: Path, target_dir: Path) -> bool:
         platform_name = get_platform()
         success = False
         
-        if platform_name == 'windows':
-            # For Windows, we need to handle different portable formats
-            
-            # Case 1: PortableApps format (LibreOfficePortable directory)
-            if (extract_dir / 'LibreOfficePortable').exists():
-                portable_dir = extract_dir / 'LibreOfficePortable'
-                # Copy the program directory
-                if (portable_dir / 'App' / 'libreoffice' / 'program').exists():
-                    program_src = portable_dir / 'App' / 'libreoffice' / 'program'
-                    program_dst = target_dir / 'program'
-                    
-                    # Create program directory if needed
-                    program_dst.mkdir(parents=True, exist_ok=True)
-                    
-                    # Copy all files from program directory
-                    for item in program_src.glob('*'):
-                        if item.is_file():
-                            shutil.copy2(str(item), str(program_dst / item.name))
-                        elif item.is_dir():
-                            shutil.copytree(str(item), str(program_dst / item.name), dirs_exist_ok=True)
-                    
-                    success = True
-            
-            # Case 2: Direct extraction of portable .paf.exe file
-            if not success:
-                # Look for the soffice.exe in any nested directory
-                for root, dirs, files in os.walk(extract_dir):
-                    for file in files:
-                        if file.lower() == 'soffice.exe':
-                            # Found soffice.exe, get its directory
-                            source_dir = Path(root)
-                            program_dst = target_dir / 'program'
-                            program_dst.mkdir(parents=True, exist_ok=True)
-                            
-                            # Copy soffice.exe and essential files
-                            shutil.copy2(str(source_dir / file), str(program_dst / file))
-                            
-                            # Copy directory contents if possible
-                            for item in source_dir.glob('*'):
-                                if item.is_file() and item.name != file:  # Skip the already copied exe
-                                    try:
-                                        shutil.copy2(str(item), str(program_dst / item.name))
-                                    except Exception as e:
-                                        print(f"Error copying {item}: {e}")
-                                elif item.is_dir():
-                                    try:
-                                        shutil.copytree(str(item), str(program_dst / item.name), dirs_exist_ok=True)
-                                    except Exception as e:
-                                        print(f"Error copying directory {item}: {e}")
-                            
-                            success = True
-                            break
-                    
-                    if success:
-                        break
-            
-            # Case 3: Fall back to searching for any LibreOffice directories in the extracted contents
-            if not success:
-                for root, dirs, files in os.walk(extract_dir):
-                    for dir_name in dirs:
-                        if 'libreoffice' in dir_name.lower() or 'program' in dir_name.lower():
-                            possible_dir = Path(root) / dir_name
-                            
-                            # Check if this directory has soffice.exe
-                            if list(possible_dir.glob('**/soffice.exe')):
-                                # Found a directory with LibreOffice executables
-                                program_dst = target_dir / 'program'
-                                program_dst.mkdir(parents=True, exist_ok=True)
-                                
-                                # Try to copy everything from this directory
-                                for item in possible_dir.glob('*'):
-                                    if item.is_file():
-                                        try:
-                                            shutil.copy2(str(item), str(program_dst / item.name))
-                                        except Exception as e:
-                                            print(f"Error copying {item}: {e}")
-                                    elif item.is_dir():
-                                        try:
-                                            shutil.copytree(str(item), str(program_dst / item.name), dirs_exist_ok=True)
-                                        except Exception as e:
-                                            print(f"Error copying directory {item}: {e}")
-                                
-                                success = True
-                                break
-            
-        elif platform_name == 'darwin':
-            # For macOS, we'd need to extract from the .app bundle
-            # This is more complex as DMGs need to be mounted
-            print("LibreOffice DMG handling not implemented yet")
-            return False
+        # Create program directory
+        program_dir = target_dir / 'program'
+        program_dir.mkdir(parents=True, exist_ok=True)
         
-        elif platform_name == 'linux':
-            # For Linux portable version
-            for root, dirs, files in os.walk(extract_dir):
-                if 'program' in dirs:
-                    program_dir = Path(root) / 'program'
-                    if (program_dir / 'soffice').exists():
-                        # Found the program directory
-                        program_dst = target_dir / 'program'
-                        program_dst.mkdir(parents=True, exist_ok=True)
+        print(f"Organizing LibreOffice from {extract_dir} to {target_dir}")
+        print(f"Platform: {platform_name}")
+        
+        # Log the directory contents for debugging
+        print("Extract directory contents:")
+        
+        # Just list the top-level directories instead of trying depth-limited traversal
+        print(f"Top-level directories in {extract_dir}:")
+        for item in extract_dir.iterdir():
+            if item.is_dir():
+                print(f"  Directory: {item.name}")
+                # List first level of subdirectories
+                subdirs = [subitem.name for subitem in item.iterdir() if subitem.is_dir()]
+                if subdirs:
+                    print(f"    Subdirectories: {', '.join(subdirs[:5])}" + ("..." if len(subdirs) > 5 else ""))
+        
+        if platform_name == 'windows':
+            # For Windows, look for LibreOfficePortable structure
+            # First look for the App directory which is standard in PortableApps
+            app_dirs = list(extract_dir.glob('**/App'))
+            if app_dirs:
+                print(f"Found App directory: {app_dirs[0]}")
+                # Look for LibreOffice program directory
+                program_paths = list(app_dirs[0].glob('**/program'))
+                
+                if program_paths:
+                    source_program_dir = program_paths[0]
+                    print(f"Found program directory: {source_program_dir}")
+                    
+                    # Look for soffice.exe
+                    if (source_program_dir / 'soffice.exe').exists():
+                        print(f"Found soffice.exe in {source_program_dir}")
                         
-                        # Copy directory contents
-                        for item in program_dir.glob('*'):
-                            if item.is_file():
-                                shutil.copy2(str(item), str(program_dst / item.name))
-                                if item.name == 'soffice':
-                                    os.chmod(program_dst / item.name, 0o755)
-                            elif item.is_dir():
-                                shutil.copytree(str(item), str(program_dst / item.name), dirs_exist_ok=True)
+                        # Copy all files from program directory
+                        for item in source_program_dir.glob('*'):
+                            try:
+                                if item.is_file():
+                                    print(f"Copying file: {item.name}")
+                                    shutil.copy2(item, program_dir / item.name)
+                                elif item.is_dir():
+                                    print(f"Copying directory: {item.name}")
+                                    shutil.copytree(item, program_dir / item.name, dirs_exist_ok=True)
+                            except Exception as e:
+                                print(f"Error copying {item}: {e}")
                         
                         success = True
-                        break
+            
+            # If App directory not found, search directly for soffice.exe
+            if not success:
+                soffice_paths = list(extract_dir.glob('**/soffice.exe'))
+                if soffice_paths:
+                    soffice_path = soffice_paths[0]
+                    soffice_dir = soffice_path.parent
+                    
+                    print(f"Found soffice.exe at: {soffice_path}")
+                    
+                    # Copy all files from this directory
+                    for item in soffice_dir.glob('*'):
+                        try:
+                            if item.is_file():
+                                print(f"Copying file: {item.name}")
+                                shutil.copy2(item, program_dir / item.name)
+                            elif item.is_dir():
+                                print(f"Copying directory: {item.name}")
+                                shutil.copytree(item, program_dir / item.name, dirs_exist_ok=True)
+                        except Exception as e:
+                            print(f"Error copying {item}: {e}")
+                    
+                    success = True
         
         # Final check: Verify that we've successfully set up the expected structure
         if platform_name == 'windows':
-            success = (target_dir / 'program' / 'soffice.exe').exists()
+            success = (program_dir / 'soffice.exe').exists()
         elif platform_name in ['darwin', 'linux']:
-            success = (target_dir / 'program' / 'soffice').exists()
+            success = (program_dir / 'soffice').exists()
             
-        # If organization worked, log details for troubleshooting
         if success:
             print(f"Successfully organized LibreOffice to {target_dir}")
-            print(f"Program directory exists: {(target_dir / 'program').exists()}")
-            if platform_name == 'windows':
-                print(f"soffice.exe exists: {(target_dir / 'program' / 'soffice.exe').exists()}")
-            else:
-                print(f"soffice exists: {(target_dir / 'program' / 'soffice').exists()}")
         else:
             print(f"Failed to organize LibreOffice to {target_dir}")
+            
+            # More specific debugging - check the full structure
+            print("\nDetailed directory listing to help diagnose the issue:")
+            for root, dirs, files in os.walk(extract_dir):
+                print(f"Directory: {root}")
+                if len(files) > 0:
+                    print(f"  Files: {', '.join(files[:5])}" + ("..." if len(files) > 5 else ""))
+                if len(dirs) > 0:
+                    print(f"  Subdirs: {', '.join(dirs)}")
         
         return success
             
     except Exception as e:
         print(f"Error organizing LibreOffice: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False
-
-def download_and_setup_tool(tool_name: str, progress_callback: Optional[Callable[[str, int], None]] = None) -> bool:
+           
+def download_file(url: str, target_path: Path, 
+                 progress_callback: Optional[Callable[[int, int], None]] = None,
+                 max_retries: int = 3,
+                 force_download: bool = False) -> Optional[Path]:
     """
-    Download and set up a specific tool.
+    Download a file with progress reporting and retry support.
     
     Args:
-        tool_name: Name of the tool to download ('ffmpeg', 'pandoc', 'libreoffice')
-        progress_callback: Optional callback function(stage, percentage) for progress updates
+        url: URL to download from
+        target_path: Path where to save the file
+        progress_callback: Optional callback function(current, total) to report progress
+        max_retries: Maximum number of retry attempts
+        force_download: If True, always download even if file exists
         
     Returns:
-        bool: True if the tool was successfully set up
+        Optional[Path]: Path to the downloaded file or None if failed
     """
-    platform_name = get_platform()
+    # Check if we need to adjust the filename (for SourceForge downloads)
+    file_path = target_path
+    if "sourceforge.net" in url and "libreoffice" in url.lower():
+        # Extract a better filename from the URL
+        for part in url.split('/'):
+            if "libreofficeportable" in part.lower() and ".paf.exe" in part.lower():
+                file_path = target_path.parent / part
+                break
     
-    # Check if tool is supported for this platform
-    if tool_name not in TOOL_VERSIONS:
-        print(f"Unknown tool: {tool_name}")
-        return False
+    # Check if file already exists
+    if not force_download and file_path.exists():
+        file_size = file_path.stat().st_size
+        if file_size > 0:  # Make sure it's not an empty file
+            print(f"File already exists: {file_path} ({file_size} bytes)")
+            if progress_callback:
+                progress_callback(100, 100)  # Indicate completion
+            return file_path
     
-    if platform_name not in TOOL_VERSIONS[tool_name]:
-        print(f"{tool_name} is not supported on {platform_name}")
-        return False
+    # If file doesn't exist or force_download is True, proceed with download
+    for attempt in range(max_retries):
+        try:
+            print(f"Downloading {url} (attempt {attempt + 1}/{max_retries})...")
+            
+            # Use a session to better handle connections
+            session = requests.Session()
+            # Set a reasonable timeout
+            response = session.get(url, stream=True, timeout=30)
+            response.raise_for_status()
+            
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+            block_size = 1024 * 1024  # 1MB
+            
+            with open(file_path, 'wb') as f:
+                for data in response.iter_content(block_size):
+                    downloaded += len(data)
+                    f.write(data)
+                    
+                    if progress_callback and total_size > 0:
+                        progress_callback(downloaded, total_size)
+            
+            # Verify the download is complete
+            if total_size > 0 and downloaded != total_size:
+                print(f"Warning: Download size mismatch. Expected {total_size}, got {downloaded}.")
+                if attempt < max_retries - 1:
+                    print("Retrying download...")
+                    continue
+            
+            print(f"Download completed successfully: {file_path}")
+            return file_path
+        
+        except requests.exceptions.RequestException as e:
+            print(f"Download error (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            if attempt < max_retries - 1:
+                print("Retrying in 2 seconds...")
+                import time
+                time.sleep(2)
+            else:
+                print(f"Failed to download after {max_retries} attempts: {url}")
+                return None
+        except Exception as e:
+            print(f"Unexpected error during download: {str(e)}")
+            return None
     
-    # Get download URL
-    url = TOOL_VERSIONS[tool_name][platform_name]
-    
-    # Setup directories
-    tools_dir, temp_dir = ensure_directories()
-    tool_dir = tools_dir / tool_name
-    tool_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Temporary extraction directory
-    extract_dir = temp_dir / tool_name
-    if extract_dir.exists():
-        shutil.rmtree(extract_dir)
-    extract_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Determine archive filename from URL
-    archive_filename = url.split('/')[-1]
-    download_path = temp_dir / archive_filename
-    
-    # Progress tracking for callbacks
-    if progress_callback:
-        progress_callback("download", 0)
-    
-    # 1. Download
-    download_success = download_file(
-        url, 
-        download_path, 
-        lambda current, total: progress_callback("download", int(current * 100 / total)) 
-        if progress_callback and total > 0 else None
-    )
-    
-    if not download_success:
-        return False
-    
-    # 2. Extract
-    if progress_callback:
-        progress_callback("extract", 0)
-    
-    extract_success = extract_archive(
-        download_path, 
-        extract_dir,
-        lambda current, total: progress_callback("extract", int(current * 100 / total)) 
-        if progress_callback and total > 0 else None
-    )
-    
-    if not extract_success:
-        return False
-    
-    # 3. Organize
-    if progress_callback:
-        progress_callback("organize", 0)
-    
-    organize_success = False
-    if tool_name == 'ffmpeg':
-        organize_success = organize_ffmpeg(extract_dir, tool_dir)
-    elif tool_name == 'pandoc':
-        organize_success = organize_pandoc(extract_dir, tool_dir)
-    elif tool_name == 'libreoffice':
-        organize_success = organize_libreoffice(extract_dir, tool_dir)
-    
-    if progress_callback:
-        progress_callback("organize", 100 if organize_success else 0)
-    
-    # 4. Clean up
-    try:
-        if download_path.exists():
-            download_path.unlink()
-        if extract_dir.exists():
-            shutil.rmtree(extract_dir)
-    except Exception as e:
-        print(f"Warning: Cleanup error: {str(e)}")
-    
-    # 5. Save version info
-    if organize_success:
-        version_file = tool_dir / "version.json"
-        with open(version_file, 'w') as f:
-            json.dump({
-                "version": TOOL_VERSIONS[tool_name]["version"],
-                "platform": platform_name,
-                "install_date": str(Path.ctime(Path.today()))
-            }, f)
-    
-    return organize_success
-
+    return None
+     
 def get_installed_version(tool_name: str) -> Optional[str]:
     """
     Get the installed version of a tool.

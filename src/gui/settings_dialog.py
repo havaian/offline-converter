@@ -5,7 +5,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                            QFileDialog, QDialogButtonBox,
                            QListWidget, QGroupBox, QFormLayout,
                            QTableWidget, QTableWidgetItem, QHeaderView,
-                           QApplication, QRadioButton, QButtonGroup)
+                           QApplication, QRadioButton, QButtonGroup,
+                           QMessageBox) 
 from PyQt6.QtCore import Qt, QSettings
 from .first_run_dialog import FirstRunDialog
 
@@ -255,7 +256,7 @@ class SettingsDialog(QDialog):
         credits_group = QGroupBox("Credits")
         credits_layout = QVBoxLayout()
         
-        author_label = QLabel("Created by: Your Name")
+        author_label = QLabel("Created by: havaian")
         author_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         credits_layout.addWidget(author_label)
         
