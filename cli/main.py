@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 from core.manager import ConversionManager
 from utils.dependencies import check_dependencies
-from src.core.batch import BatchConverter
+from core.batch import BatchConverter
 
 def main():
     """Entry point for the command-line interface."""

@@ -52,11 +52,20 @@ class BatchConverter:
         
         # Track conversion results
         results = {
-            "successful": ["/path/to/successful1.pdf", "/path/to/successful2.pdf", "/path/to/successful3.pdf"],
+            "successful": [],
             "failed": []
         }
         
-        # Simulate success for testing purposes
-        # In a real implementation, we would process each file here
+        # Process each file
+        for source_path in all_files:
+            try:
+                # Call the conversion manager to convert the file
+                self.manager.convert(source_path, target_format)
+                
+                # Add to successful list
+                results["successful"].append(str(source_path))
+            except Exception as e:
+                # Add to failed list with error message
+                results["failed"].append(f"{source_path}")
         
         return results
